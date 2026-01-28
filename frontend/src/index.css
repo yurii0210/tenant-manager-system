@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Це змусить додаток займати весь екран і прибере центрування */
+:root {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #f8fafc; /* Приємний світлий фон */
+}
