@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Базовий URL API
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = 'https://realty-api.onrender.com/api';
 
 // Створення екземпляра axios з базовими налаштуваннями
 export const api = axios.create({
