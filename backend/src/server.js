@@ -9,26 +9,18 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const meterRoutes = require('./routes/meterRoutes');
 
-// ENV
+// Ініціалізація ENV
 dotenv.config();
 
-// Local imports
+// Імпорт локальних модулів
 const pool = require('./config/database');
 const { errorHandler } = require('./middleware/errorHandler');
 
-// Routes
-const authRoutes = require('./routes/authRoutes');
-const propertyRoutes = require('./routes/propertyRoutes');
-const transactionRoutes = require('./routes/transactionRoutes');
-const tenantRoutes = require('./routes/tenantRoutes');
-const reportRoutes = require('./routes/reportRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const meterRoutes = require('./routes/meterRoutes');
-
-// ENV check
+// Перевірка конфігурації
 if (!process.env.DB_HOST && !process.env.DATABASE_URL) {
-    console.error('❌ КРИТИЧНА ПОМИЛКА: Немає даних для підключення до БД');
+    console.error('❌ КРИТИЧНА ПОМИЛКА: Дані бази даних не знайдені в .env');
     process.exit(1);
 }
 
@@ -36,107 +28,100 @@ const app = express();
 
 /**
  * ==========================================
- * SECURITY & CORE MIDDLEWARE
+ * MIDDLEWARE (Захист та Обробка)
  * ==========================================
  */
 
-// Helmet
+// 1. Безпека заголовків
 app.use(helmet());
 
-// Allowed origins
+// 2. Налаштування CORS (дозволяємо фронтенду звертатися до API)
 const allowedOrigins = [
-    'https://tenant-manager-system.vercel.app',
-    'https://tenant-manager-system-git-main-yurii0210s-projects.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:5174',
-    process.env.CLIENT_URL
-].filter(Boolean);
+    'http://localhost:5173', // Порт для Vite (ваш поточний)
+    'http://localhost:3000', // Порт для Create React App
+    process.env.CLIENT_URL   // Порт з вашого .env (якщо є)
+].filter(Boolean); // Видаляє порожні значення, якщо .env не задано
 
-// CORS
 app.use(cors({
-    origin: (origin, callback) => {
-        // дозволяємо запити без origin (Postman, mobile apps)
+    origin: function (origin, callback) {
+        // Дозволяємо запити без origin (наприклад, Postman або мобільні додатки)
         if (!origin) return callback(null, true);
-
-        if (allowedOrigins.includes(origin)) {
-            return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Помилка CORS: Цей Origin не дозволений'));
         }
-
-        return callback(new Error('CORS error'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Preflight
-app.options('*', cors());
-
-// Logger
+// 3. Логування запитів у консоль
 app.use(morgan('dev'));
 
-// Body parsers
+// 4. Парсинг JSON та URL-encoded даних
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiter
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Забагато запитів. Спробуйте пізніше.' }
+// 5. Обмеження кількості запитів (захист від DDOS/Bruteforce)
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 хвилин
+    max: 100, // ліміт 100 запитів з однієї IP
+    message: { error: 'Забагато запитів, спробуйте пізніше.' }
 });
-app.use('/api', apiLimiter);
+app.use('/api', limiter);
 
 /**
  * ==========================================
- * ROUTES
+ * ROUTES (Маршрутизація)
  * ==========================================
  */
 
+const notificationRoutes = require('./routes/notificationRoutes');
+app.use('/api/notifications', notificationRoutes);
+
+// Головна сторінка API
 app.get('/', (req, res) => {
-    res.json({ message: 'Realty Management API is running', version: '1.0.3' });
+    res.json({ message: 'Realty Management API is running', version: '1.0.2' });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/tenants', tenantRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/notifications', notificationRoutes);
+// Підключення модульних маршрутів
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/properties', require('./routes/propertyRoutes'));
+app.use('/api/transactions', require('./routes/transactionRoutes'));
+app.use('/api/tenants', require('./routes/tenantRoutes'));
+app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/meters', meterRoutes);
 
 /**
  * ==========================================
- * HEALTH CHECK
+ * HEALTH & ERROR HANDLING
  * ==========================================
  */
 
+// Перевірка стану системи та БД
 app.get('/health', async (req, res) => {
     try {
         await pool.query('SELECT 1');
         res.status(200).json({ status: 'ok', database: 'connected' });
-    } catch (err) {
+    } catch (error) {
         res.status(503).json({ status: 'error', database: 'disconnected' });
     }
 });
 
-/**
- * ==========================================
- * ERROR HANDLING
- * ==========================================
- */
+// Обробка неіснуючих маршрутів (404)
+app.use((req, res) => {
+    res.status(404).json({ error: 'Маршрут не знайдено' });
+});
 
-// 404
-app.use((req, res) => res.status(404).json({ error: 'Маршрут не знайдено' }));
-
-// Global error handler
+// Глобальний обробник помилок (має бути останнім)
 app.use(errorHandler);
 
 /**
  * ==========================================
- * SERVER START & SHUTDOWN
+ * SERVER LAUNCH & SHUTDOWN
  * ==========================================
  */
 
@@ -144,24 +129,24 @@ const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
     console.log(`
-🚀 ============================================
-📡 API: http://localhost:${PORT}
-🛡️ Security: Helmet + RateLimit
-🌍 Allowed origins:
-${allowedOrigins.map(o => `   - ${o}`).join('\n')}
-============================================`);
+    🚀 ============================================
+    📡 Сервер: http://localhost:${PORT}
+    🛡️ Безпека: Helmet & RateLimit активовані
+    📦 БД: ${process.env.DB_NAME || 'PostgreSQL'}
+    ================================================
+    `);
 });
 
-// Graceful shutdown
-const gracefulShutdown = async (signal) => {
-    console.log(`\n🛑 ${signal} — shutting down server...`);
+// Коректне завершення роботи (Graceful Shutdown)
+const gracefulShutdown = (signal) => {
+    console.log(`\n🛑 Отримано ${signal}. Закриття сервера...`);
     server.close(async () => {
         try {
             await pool.end();
-            console.log('✅ DB pool closed');
+            console.log('✅ Пул з\'єднань з БД закрито.');
             process.exit(0);
         } catch (err) {
-            console.error('❌ Error closing DB:', err);
+            console.error('❌ Помилка при закритті БД:', err);
             process.exit(1);
         }
     });
@@ -169,7 +154,8 @@ const gracefulShutdown = async (signal) => {
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
 process.on('unhandledRejection', (err) => {
-    console.error('❌ UNHANDLED REJECTION:', err);
+    console.error('❌ НЕОБРОБЛЕНА ПОМИЛКА:', err);
     gracefulShutdown('unhandledRejection');
 });

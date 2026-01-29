@@ -99,7 +99,7 @@ const Header = ({ user, onLogout }) => {
                   <span className="text-xs font-bold">{userInitials}</span>
                 </div>
                 
-                <div className="hidden md:flex flex-col items-start leading-tight min-w-0 max-w-30">
+                <div className="hidden md:flex flex-col items-start leading-tight min-w-0 max-w-[120px]">
                   <span className="text-sm font-bold text-gray-900 truncate w-full text-left">
                     {userData.name}
                   </span>
